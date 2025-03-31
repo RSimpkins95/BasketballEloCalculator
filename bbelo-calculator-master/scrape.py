@@ -1,3 +1,5 @@
+import sys
+from random import random, uniform
 import requests
 from bs4 import BeautifulSoup
 from eloeco import EloEco
@@ -9,42 +11,51 @@ import time
 testelo: EloEco = None
 try:
     testelo = pickle.load(open('elosystem.p', 'rb'))
+
+    print('[INFO] Pickle file found, loaded existing Elo system.')
+
+    # Inspect the loaded object
+    print(f"Teams loaded: {len(testelo.teams)}")
+    print(f"Games loaded: {sum(len(g) for g in testelo.games.values())}")
+
 except FileNotFoundError:
     sourcepage = 'https://www.sports-reference.com/cbb/schools/'
-
     rooturl = 'https://www.sports-reference.com'
-
-    scheduleurl = '2021-schedule.html'
-
+    scheduleurl = '2025-schedule.html'
     sourcehtml = requests.get(sourcepage)
     bbsoup = BeautifulSoup(sourcehtml.content, 'html.parser')
-
     testhtml = ''
-
-    count = 0
     testelo = EloEco()
 
-    for link in bbsoup.findAll('td', {'data-stat': 'school_name'}):
+    for link in bbsoup.find_all('td', {'data-stat': 'school_name'}):
         teamlink: str = link.a['href']
         print(teamlink)
-        teamname = teamlink.split('/')[-2]
+
+        if "/men/" not in teamlink:
+            continue
+
+        teamname = teamlink.split('/')[-3]
         testhtml = rooturl + teamlink + scheduleurl
         print("We are going to evaluate:", testhtml)
-        time.sleep(.5)
+        time.sleep(uniform(3.0, 5.0))
         schedulehtml = requests.get(testhtml)
+
+        if "we block traffic that we think is from a bot" in schedulehtml.text:
+            print("[WARNING] Detected block, exiting scraper.")
+            sys.exit(0)
+
         schedsoup = BeautifulSoup(schedulehtml.content, 'html.parser')
-        table = schedsoup.findChildren('table', {'id': 'schedule'})
+        table = schedsoup.find_all('table', {'id': 'schedule'})
 
         try:
             schedule = table[0]
             abilteam = Team(teamname)
             testelo.add_team(abilteam)
-            rows = schedule.findChildren('tr')
+            rows = schedule.find_all('tr')
 
             for row in rows:
                 if "\n" not in row:
-                    soup = BeautifulSoup(str(row), 'lxml')
-                    columns = soup.find_all('td')
+                    columns = row.find_all('td')
                     date: str = ''
                     gtype: str = ''
                     tone: str = teamname
@@ -52,7 +63,6 @@ except FileNotFoundError:
                     tonescore: int = ''
                     ttwoscore: int = ''
                     ot: bool = False
-
                     # Comment out later
                     for col in columns:
                         stat = str(col.attrs['data-stat'])
@@ -86,6 +96,11 @@ except FileNotFoundError:
     print(testelo.games)
 
 game_dates = sorted(testelo.games.keys())
+
+for game_list in testelo.games.values():  # each value is a list of tuples
+    for game_tuple in game_list:
+        game = game_tuple[2]  # grab the Game object from the tuple
+        print(f"{game.tone} ({game.tonescore}) vs {game.ttwo} ({game.ttwoscore}) on {game.date}")
 
 newk = int(input("Enter a k: "))
 testelo.set_k(newk)
